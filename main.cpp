@@ -10,7 +10,7 @@ int main(int argc,char* argv[])
 		Socket::initializeWinsock_();
 
 		Server server("192.168.1.3","7000");
-		server.workWithClients();
+		//server.workWithClients();
 		//some comments
 	}
 	catch (exception e)

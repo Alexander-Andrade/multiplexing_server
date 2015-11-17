@@ -48,6 +48,7 @@
 #include <cstring>
 #include <fstream>
 #include <queue>
+#include <list>
 #include <memory>
 #include <time.h>
 #include <random>
@@ -78,7 +79,7 @@ using namespace std;
 #endif
 
 using CommandMap = std::map< std::string, std::function<bool(string&)> >;
-
+template<typename T> using list_ptr_it = typename std::list< unique_ptr<T> >::iterator;
 //versions of Winsock;
 //the older, limited version
 #define SOCKET_V1 0x0101

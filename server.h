@@ -3,55 +3,133 @@
 
 #include "Connection.h"
 
+
 class Server : public Connection
 {
 private:
-	unique_ptr<ServerSocket> _serverSocket;
-	unique_ptr<Socket> _contactSocket;
+	unique_ptr<ServerSocket> _servSock;
+	unique_ptr<Socket> _contactSock;
 	    
 	unique_ptr<UDP_ServerSocket> _udpServerSocket;
-	std::queue<int> _clients;
+	std::queue<int> _lastClientsId;
+	std::list<unique_ptr<Socket>> _clients;
+	size_t curClientInd;
 public:
-	Server(char* nodeName, char* serviceName, int nConnections = 5, int sendBufLen = 1024, int timeOut = 30) : Connection(sendBufLen,timeOut)
+	Server(char* nodeName, char* serviceName, int nConnections = 5, int bufLen = 2048, int timeOut = 30) : Connection(bufLen,timeOut)
 	{//ethernet frame = 1460 bytes
-		_serverSocket.reset(new ServerSocket(nodeName,serviceName, nConnections));
-		_contactSocket = nullptr;
+		_servSock.reset(new ServerSocket(nodeName,serviceName, nConnections));
+		_contactSock = nullptr;
 
 		_udpServerSocket.reset(new UDP_ServerSocket(nodeName, serviceName));
 
 		fillCommandMap();
 	}
    
-	void workWithClients()
-	{   
-		while (true)
-		{
-			//try to accept()
-			if (acceptNewClient())
-				//interact with new client
-				clientCommandsHandling();
-		}
-	}
-
-protected:
-
-	virtual void clientCommandsHandling()
+	void clientMultiplex(int selTimeOut)
 	{
 		while (true)
 		{
-			string message = _contactSocket->receiveMessage();
+			fd_set readSet;
+			FD_ZERO(&readSet);
+			//add server socket
+			FD_SET(_servSock->handle(), &readSet);
+			
+			for (unique_ptr<Socket>& sock : _clients)
+				FD_SET(sock->handle(), &readSet);
+
+			//set timeout
+			//timeval timeout = getTimeOut(selTimeOut);
+			SOCKET hMax = maxHandleValue();
+
+			if (select(hMax + 1, &readSet, NULL, NULL, NULL) == SOCKET_ERROR)
+				//we can't broke the server
+				continue;
+
+			//if new client try to connect
+			if (FD_ISSET(_servSock->handle(), &readSet))
+				acceptNewClient();
+
+			/*for (unique_ptr<Socket>& sock : _clients)
+				//if is client query
+				if (FD_ISSET(sock->handle(), &readSet))
+				*/
+		}
+	}
+protected:
+
+	SOCKET maxHandleValue()
+	{
+		auto compare = [](unique_ptr<Socket>& a, unique_ptr<Socket>& b) {return a->handle() < b->handle(); };
+		list_ptr_it<Socket> maxClient = max_element(_clients.begin(), _clients.end(), compare);
+		return std::max(_servSock->handle(), (*maxClient)->handle());
+	}
+
+	timeval getTimeOut(int sec_time)
+	{
+		timeval timeout;
+		timeout.tv_sec = sec_time;
+		timeout.tv_usec = 0;
+		return timeout;
+	}
+
+	void registerNewClientId(int clientId)
+	{
+		if (_lastClientsId.size() == 2)
+			_lastClientsId.pop();
+		_lastClientsId.push(clientId);
+	}
+	void acceptNewClient()
+	{
+		_clients.emplace_back(_servSock->accept());
+
+		int clientId;
+		_clients.back()->receive(clientId);
+		registerNewClientId(clientId);
+		
+		_clients.back()->makeUnblocked();
+	}
+
+	void clientQuery(unique_ptr<Socket>& sock)
+	{
+		string message = sock->receiveMessage();
+		if (message.empty()) return;
+
+		if (!checkStringFormat(message, "( )*[A-Za-z0-9_]+(( )+(.)+)?(\r\n|\n)"))
+		{
+			std::string errorMessage = string("invalid command format \"") + message;
+			sock->sendMessage(errorMessage);
+			return;
+		}
+
+		if (!catchCommand(message))
+		{
+			sock->sendMessage("unknown command");
+			return;
+		}
+
+		if (std::regex_search(message, std::regex("quit|exit|close")))
+		{
+			_clients.remove_if([&sock](const unique_ptr<Socket>& s) {return s->handle() == sock->handle(); });
+		}
+	}
+
+	void clientCommandsHandling()
+	{
+		while (true)
+		{
+			string message = _contactSock->receiveMessage();
 			if (message.empty()) break;
 	
 			if (!checkStringFormat(message, "( )*[A-Za-z0-9_]+(( )+(.)+)?(\r\n|\n)"))
 			{  
                 std::string errorMessage = string("invalid command format \"") + message;
-				_contactSocket->sendMessage(errorMessage);
+				_contactSock->sendMessage(errorMessage);
 				continue;
 			}
 
 			if (!catchCommand(message))
 			{
-				_contactSocket->sendMessage("unknown command");
+				_contactSock->sendMessage("unknown command");
 				continue;
 			}
 			
@@ -65,17 +143,17 @@ protected:
 
 	bool sendFile(string& message)
 	{
-		bool retVal = Connection::sendFile(_contactSocket.get(), message, std::bind(&Server::tryToReconnect, this, std::placeholders::_1));
+		bool retVal = Connection::sendFile(_contactSock.get(), message, std::bind(&Server::tryToReconnect, this, std::placeholders::_1));
 	  
-		_contactSocket->receiveAck();
+		_contactSock->receiveAck();
 	       
-		retVal ? _contactSocket->sendMessage("file downloaded\n") : _contactSocket->sendMessage("fail to download the file\n");
+		retVal ? _contactSock->sendMessage("file downloaded\n") : _contactSock->sendMessage("fail to download the file\n");
 		return retVal;
 	}
 	bool receiveFile(string& message)
 	{
-		bool retVal = Connection::receiveFile(_contactSocket.get(), message, std::bind(&Server::tryToReconnect, this, std::placeholders::_1));
-		retVal ? _contactSocket->sendMessage("file uploaded\n") : _contactSocket->sendMessage("fail to upload the file\n");
+		bool retVal = Connection::receiveFile(_contactSock.get(), message, std::bind(&Server::tryToReconnect, this, std::placeholders::_1));
+		retVal ? _contactSock->sendMessage("file uploaded\n") : _contactSock->sendMessage("fail to upload the file\n");
 		return retVal;
 	}
 
@@ -87,9 +165,9 @@ protected:
 
 		bool retVal = Connection::sendFile(_udpServerSocket.get(), message, std::bind(&Server::tryToReconnectUdp, this, std::placeholders::_1));
 
-		_contactSocket->receiveAck();
+		_contactSock->receiveAck();
 
-		retVal ? _contactSocket->sendMessage("file downloaded\n") : _contactSocket->sendMessage("fail to download the file\n");
+		retVal ? _contactSock->sendMessage("file downloaded\n") : _contactSock->sendMessage("fail to download the file\n");
 		return retVal;
 	}
 
@@ -100,49 +178,29 @@ protected:
 		_udpServerSocket->receive<char>(arg);
 
 		bool retVal = Connection::receiveFile(_udpServerSocket.get(), message, std::bind(&Server::tryToReconnectUdp, this, std::placeholders::_1));
-		retVal ? _contactSocket->sendMessage("file uploaded\n") : _contactSocket->sendMessage("fail to upload the file\n");
+		retVal ? _contactSock->sendMessage("file uploaded\n") : _contactSock->sendMessage("fail to upload the file\n");
 		return retVal;
-	}
-
-	void registerNewClient(int clientId)
-	{
-		if (_clients.size() == 2)
-			_clients.pop();
-		_clients.push(clientId);
-	}
-	bool acceptNewClient()
-	{
-		_contactSocket.reset(_serverSocket->accept());
-	  
-		bool result = _contactSocket->handle() != INVALID_SOCKET;
-		if (result)
-		{
-			int clientId;
-			_contactSocket->receive(clientId);
-			registerNewClient(clientId);
-		}
-		return result;
 	}
 
 	Socket* tryToReconnect(int timeOut)
 	{    
 	 
-		if (!_serverSocket->makeUnblocked())
+		if (!_servSock->makeUnblocked())
 			return nullptr;
-		//fcntl(_serverSocket->handle(),F_SETFL,O_NONBLOCK);
-		if (!_serverSocket->select(Socket::Selection::ReadCheck ,timeOut))
+		//fcntl(_servSock->handle(),F_SETFL,O_NONBLOCK);
+		if (!_servSock->select(Socket::Selection::ReadCheck ,timeOut))
 		{	
-			_serverSocket->makeBlocked();
+			_servSock->makeBlocked();
 			return nullptr ;
 		}
 
-		if (!_serverSocket->makeBlocked())
+		if (!_servSock->makeBlocked())
 			return nullptr;
 
 		acceptNewClient();
 	
-		if (_clients.front() == _clients.back())
-			return _contactSocket.get();
+		if (_lastClientsId.front() == _lastClientsId.back())
+			return _contactSock.get();
 	
 		return nullptr;
 	}
@@ -155,12 +213,12 @@ protected:
 		_udpServerSocket->receive<int>(clientId);
 		_udpServerSocket->send(clientId);
 
-		registerNewClient(clientId);
+		registerNewClientId(clientId);
 
 		_udpServerSocket->disableReceiveTimeOut();
 
 		//check if old client
-		if (_clients.front() == _clients.back())
+		if (_lastClientsId.front() == _lastClientsId.back())
 			return _udpServerSocket.get();
 
 		return nullptr;
@@ -172,21 +230,21 @@ protected:
 	bool echo(string& message)
 	{
 		cutSuitableSubstring(message, "( )+");
-		return _contactSocket->sendMessage(message);
+		return _contactSock->sendMessage(message);
 	}
 	
 	bool quit(string& message)
 	{
-		 //bool result = _contactSocket->shutDown();
-		//_contactSocket->closeSocket();
-		_contactSocket.reset();
+		 //bool result = _contactSock->shutDown();
+		//_contactSock->closeSocket();
+		_contactSock.reset();
 		return true;
 	}
 	bool time(string& message)
 	{
 		time_t curTime;
 		curTime = std::time(NULL);
-		return _contactSocket->sendMessage(std::ctime(&curTime));
+		return _contactSock->sendMessage(std::ctime(&curTime));
 	}
 
 	void fillCommandMap() override
