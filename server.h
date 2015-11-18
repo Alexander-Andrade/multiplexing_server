@@ -47,20 +47,22 @@ public:
 			if (FD_ISSET(_servSock->handle(), &readSet))
 				acceptNewClient();
 
-			for (list_ptr_it<Socket> sock = _clients.begin(); sock != _clients.end(); ++sock)
-				//if is client query
+			for (list_ptr_it<Socket> sock = _clients.begin(); sock != _clients.end(); )
+			{    //if is client query
 				if (FD_ISSET((*sock)->handle(), &readSet))
 				{
 					_flClientGone = false;
 					_curClientSock = sock;
 					clientQueryProcessing();
 					//if remove client form the list and iterator can be invalid
-					if (_flClientGone)
-					{
+					if (_flClientGone) {
 						if (_curClientSock == _clients.end()) break;
 						sock = _curClientSock;
+						continue;
 					}
 				}
+				++sock;
+			}
 		}
 	}
 protected:

@@ -185,7 +185,7 @@ public:
 
 				bytesWrite = _socket->sendall(_buffer.data(), fileByteRead,0);
 
-				if(bytesWrite < fileByteRead) cout<<"les"<<std::flush;
+
 				if (bytesWrite == SOCKET_ERROR)
 					throw runtime_error("connection is lost");
 
@@ -274,7 +274,7 @@ public:
 				else if (bytesRead == 0)
 					//connection close
 					break;
-				if (bytesRead < _bufLen) cout << "les";
+
 				//file writing
 				_wrFile.write(_buffer.data(), bytesRead);
 
