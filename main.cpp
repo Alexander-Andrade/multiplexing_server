@@ -9,7 +9,7 @@ int main(int argc,char* argv[])
 	{
 		Socket::initializeWinsock_();
 
-		Server server("192.168.1.2","7000");
+		Server server("192.168.1.4","7000");
 		//server.workWithClients();
 		server.clientMultiplex();
 		//some comments

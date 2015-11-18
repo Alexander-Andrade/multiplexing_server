@@ -91,15 +91,26 @@ protected:
 			_lastClientsId.pop();
 		_lastClientsId.push(clientId);
 	}
+
+	void getAndRegisterClientId(unique_ptr<Socket>& sock)
+	{
+		int clientId;
+		sock->receive(clientId);
+		registerNewClientId(clientId);
+	}
 	void acceptNewClient()
 	{
 		_clients.emplace_back(_servSock->accept());
 
-		int clientId;
-		_clients.back()->receive(clientId);
-		registerNewClientId(clientId);
-		
+		getAndRegisterClientId(_clients.back());
+
 		_clients.back()->makeUnblocked();
+	}
+	void acceptOldClient()
+	{
+		(*_curClientSock).reset(_servSock->accept());
+
+		getAndRegisterClientId((*_curClientSock));
 	}
 
 	void clientQueryProcessing()
@@ -190,7 +201,7 @@ protected:
 		if (!_servSock->makeBlocked())
 			return nullptr;
 
-		acceptNewClient();
+		acceptOldClient();
 	
 		if (_lastClientsId.front() == _lastClientsId.back())
 			return (*_curClientSock).get();

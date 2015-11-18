@@ -1,7 +1,7 @@
 #ifndef INCLUDES_H
 #define INCLUDES_H
 
-#define WINDOWS
+#define UNIX
 
 
 
@@ -42,7 +42,6 @@
 #include <exception>
 #include <functional>
 #include <algorithm>
-#include <iterator>
 #include <map>
 #include <ctime>
 #include <regex>
@@ -55,6 +54,7 @@
 #include <random>
 #include <memory>
 #include <limits>
+#include <cmath>
 
 using namespace std;
 
