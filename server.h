@@ -13,6 +13,7 @@ private:
 	std::queue<int> _lastClientsId;
 	std::list<unique_ptr<Socket>> _clients;
 	list_ptr_it<Socket> _curClientSock;
+	size_t _flClientGone;
 public:
 	Server(char* nodeName, char* serviceName, int nConnections = 5, int bufLen = 2048, int timeOut = 30) : Connection(bufLen,timeOut)
 	{//ethernet frame = 1460 bytes
@@ -23,11 +24,12 @@ public:
 		fillCommandMap();
 	}
    
-	void clientMultiplex(int selTimeOut)
+	void clientMultiplex()
 	{
+		fd_set readSet;
+
 		while (true)
 		{
-			fd_set readSet;
 			FD_ZERO(&readSet);
 			//add server socket
 			FD_SET(_servSock->handle(), &readSet);
@@ -45,12 +47,19 @@ public:
 			if (FD_ISSET(_servSock->handle(), &readSet))
 				acceptNewClient();
 
-			for (list_ptr_it<Socket> sock = _clients.begin(); sock != _clients.end();++sock)
+			for (list_ptr_it<Socket> sock = _clients.begin(); sock != _clients.end(); ++sock)
 				//if is client query
 				if (FD_ISSET((*sock)->handle(), &readSet))
 				{
+					_flClientGone = false;
 					_curClientSock = sock;
 					clientQueryProcessing();
+					//if remove client form the list and iterator can be invalid
+					if (_flClientGone)
+					{
+						if (_curClientSock == _clients.end()) break;
+						sock = _curClientSock;
+					}
 				}
 		}
 	}
@@ -58,9 +67,14 @@ protected:
 
 	SOCKET maxHandleValue()
 	{
-		auto compare = [](unique_ptr<Socket>& a, unique_ptr<Socket>& b) {return a->handle() < b->handle(); };
-		list_ptr_it<Socket> maxClient = max_element(_clients.begin(), _clients.end(), compare);
-		return std::max(_servSock->handle(), (*maxClient)->handle());
+		if (!_clients.empty())
+		{
+			auto compare = [](unique_ptr<Socket>& a, unique_ptr<Socket>& b) {return a->handle() < b->handle(); };
+			list_ptr_it<Socket> maxClient = max_element(_clients.begin(), _clients.end(), compare);
+			return std::max(_servSock->handle(), (*maxClient)->handle());
+		}
+		else
+			return _servSock->handle();
 	}
 
 	timeval getTimeOut(int sec_time)
@@ -110,11 +124,12 @@ protected:
 		}
 
 		if (std::regex_search(message, std::regex("quit|exit|close")))
-		{
-			//delete this Socket from list (with calling it's destructor)
-			_clients.erase(_curClientSock);
+		{	//delete this Socket from list (with calling it's destructor)
+			_curClientSock = _clients.erase(_curClientSock);
+			_flClientGone = true;
 		}
-		(*_curClientSock)->makeUnblocked();
+		else
+			(*_curClientSock)->makeUnblocked();
 	}
 
 	//---------------------------------  ----------------------------------------//

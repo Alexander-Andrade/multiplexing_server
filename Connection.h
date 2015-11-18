@@ -375,8 +375,8 @@ protected:
 		if (checkCommandExistance(command))
 		{
 			//command execution
-			_commandMap[command](request);
-			return true;
+			return _commandMap[command](request);
+			
 		}
 		//there is no such command
 		return false;

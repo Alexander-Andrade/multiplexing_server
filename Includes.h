@@ -42,6 +42,7 @@
 #include <exception>
 #include <functional>
 #include <algorithm>
+#include <iterator>
 #include <map>
 #include <ctime>
 #include <regex>
