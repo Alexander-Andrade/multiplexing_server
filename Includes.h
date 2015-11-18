@@ -1,7 +1,7 @@
 #ifndef INCLUDES_H
 #define INCLUDES_H
 
-#define UNIX
+#define WINDOWS
 
 
 
