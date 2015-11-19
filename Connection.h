@@ -285,9 +285,12 @@ public:
 				//recv OOB byte with loading percent value
 				//(_socket->protocol() == IPPROTO_TCP) ? trackReceivePercent() : showPercents(cout,percentOfLoading(_totallyBytesReceived),20,'.');
 				if (_socket->protocol() == IPPROTO_TCP)
+				{
 					if (!trackReceivePercent())
 						throw runtime_error("connection is lostaga");
-
+				}
+				else
+					showPercents(cout, percentOfLoading(_totallyBytesReceived), 20, '.');
 
 				if (_totallyBytesReceived == _fileLength)
 				{//file uploaded
